@@ -73,6 +73,63 @@ def export_entries(
     )
 
 
+# 业务动作接口：把领域服务里已有的操作暴露出来，路由层只做参数转交。
+# 固定路径（如 /table_archive/plans）必须注册在通用 GET /{module}/{entry_id} 之前，
+# 否则会被动态路径抢先匹配，entry_id 解析失败。
+
+
+@router.post("/table_archive/{entry_id}/plan", response_model=dict)
+def plan_archive(entry_id: int, as_of: str | None = Query(default=None)) -> dict[str, Any]:
+    """签发归档计划，固化原清单和签发时的留存依据。"""
+    service = require_service("table_archive")
+    return service.plan_archive_execution(entry_id, as_of=as_of)
+
+
+@router.get("/table_archive/plans", response_model=dict)
+def list_archive_plans(entry_id: int | None = Query(default=None)) -> dict[str, Any]:
+    """查询已签发归档计划，可按策略过滤。"""
+    service = require_service("table_archive")
+    return service.list_archive_plans(entry_id)
+
+
+@router.get("/table_archive/plans/{plan_id}", response_model=dict)
+def get_archive_plan(plan_id: int) -> dict[str, Any]:
+    """回查已签发计划的原清单和留存依据。"""
+    service = require_service("table_archive")
+    plan = service.get_archive_plan(plan_id)
+    if not plan.get("ok"):
+        raise HTTPException(status_code=404, detail=plan["message"])
+    return plan
+
+
+@router.get("/table_archive/plans/{plan_id}/records", response_model=dict)
+def get_archive_records(plan_id: int) -> dict[str, Any]:
+    """查实际归档记录中的已迁出分区和需要复核的分区。"""
+    service = require_service("table_archive")
+    return service.get_archive_records(plan_id)
+
+
+@router.post("/table_archive/plans/{plan_id}/remaining", response_model=dict)
+def plan_remaining_from_plan(plan_id: int, as_of: str | None = Query(default=None)) -> dict[str, Any]:
+    """从旧计划派生可执行计划，只覆盖原清单中仍过期的项。"""
+    service = require_service("table_archive")
+    result = service.plan_remaining_from_plan(plan_id, as_of=as_of)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
+
+
+@router.post("/table_archive/{entry_id}/submit", response_model=dict)
+def submit_archive(
+    entry_id: int,
+    plan_id: int | None = Query(default=None),
+    confirm: bool = Query(default=True),
+) -> dict[str, Any]:
+    """提交归档：先做安全检查，确认后按已签发清单办理。"""
+    service = require_service("table_archive")
+    return service.execute_archive(entry_id, confirm=confirm, plan_id=plan_id)
+
+
 @router.get("/{module}/{entry_id}", response_model=dict)
 def get_entry(module: str, entry_id: int) -> dict[str, Any]:
     service = require_service(module)

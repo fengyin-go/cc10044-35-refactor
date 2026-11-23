@@ -8,6 +8,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.partition_dates import (
+    PREVIEW_PARTITION_LIMIT,
+    dates_from_cutoff,
+    expiry_cutoff,
+    format_partition_value,
+)
 from app.store import store
 
 
@@ -36,13 +42,11 @@ class PartitionManagerService(BaseModuleService):
         granularity = entry.get("分区粒度", "day")
         partition_field = entry.get("分区字段", "dt")
 
-        today = datetime(2026, 11, 21)
-        expired_before = today - timedelta(days=retention_days)
+        expired_before = expiry_cutoff(retention_days)
 
         expired_partitions = self._generate_partition_values(
             granularity, expired_before, retention_days
         )
-
         return {
             "config_id": entry_id,
             "config_name": entry.get("配置名称"),
@@ -155,18 +159,11 @@ class PartitionManagerService(BaseModuleService):
     def _generate_partition_values(
         self, granularity: str, start: datetime, count: int
     ) -> list[str]:
-        values = []
-        for i in range(min(count, 30)):
-            d = start - timedelta(days=i)
-            if granularity == "day":
-                values.append(d.strftime("dt=%Y-%m-%d"))
-            elif granularity == "month":
-                values.append(d.strftime("dt=%Y-%m"))
-            elif granularity == "hour":
-                values.append(d.strftime("dt=%Y-%m-%d-%H"))
-            else:
-                values.append(d.strftime("dt=%Y"))
-        return values
+        # 数量上限沿用分区预览原有的 30；日期推导统一走共享计算。
+        return [
+            format_partition_value(value, granularity)
+            for value in dates_from_cutoff(start, min(count, PREVIEW_PARTITION_LIMIT))
+        ]
 
     def _estimate_partition_count(self, entry: dict[str, Any]) -> int:
         granularity = entry.get("分区粒度", "day")
